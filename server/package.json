@@ -14,7 +14,8 @@
     "db:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "postinstall": "prisma generate",
-    "backup": "node scripts/backup.mjs"
+    "backup": "node scripts/backup.mjs",
+    "start:prod": "prisma migrate deploy && node dist/bootstrap.js && node dist/index.js"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.1",

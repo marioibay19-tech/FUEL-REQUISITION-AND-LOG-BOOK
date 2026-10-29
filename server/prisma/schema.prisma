@@ -427,6 +427,9 @@ model Attachment {
   storedName   String   @unique @map("stored_name") @db.VarChar(100)
   mimeType     String   @map("mime_type") @db.VarChar(100)
   sizeBytes    Int      @map("size_bytes")
+  // File bytes are kept in the database so they survive redeploys on hosts
+  // without a persistent disk and are included in database backups.
+  content      Bytes?
   description  String?  @db.VarChar(255)
   uploadedById Int      @map("uploaded_by_id")
   uploadedBy   User     @relation(fields: [uploadedById], references: [id], onDelete: Restrict)

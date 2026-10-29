@@ -81,7 +81,7 @@ transactionsRouter.get("/:id", requirePerm("transaction.view"), async (req, res)
     },
   });
   if (!t) throw notFound("Transaction not found");
-  const attachments = await prisma.attachment.findMany({ where: { entityType: "FUEL_TRANSACTION", entityId: id }, include: { uploadedBy: { select: { fullName: true } } } });
+  const attachments = await prisma.attachment.findMany({ where: { entityType: "FUEL_TRANSACTION", entityId: id }, omit: { content: true }, include: { uploadedBy: { select: { fullName: true } } } });
   const settings = await getSettings(prisma);
   const mayChange = t.status === "ACTIVE" && can(user, "transaction.correct") && (user.roles.includes("ADMIN") || t.encodedById === user.id);
   res.json({

@@ -104,7 +104,7 @@ requestsRouter.get("/:id", requirePerm(...viewPerms), async (req, res) => {
       items: true,
     },
   });
-  const attachments = await prisma.attachment.findMany({ where: { entityType: "FUEL_REQUEST", entityId: id }, include: { uploadedBy: { select: { fullName: true } } } });
+  const attachments = await prisma.attachment.findMany({ where: { entityType: "FUEL_REQUEST", entityId: id }, omit: { content: true }, include: { uploadedBy: { select: { fullName: true } } } });
   const settings = await getSettings(prisma);
   const isOwner = r.requesterId === user.id;
   const actions = {

@@ -18,6 +18,7 @@ export const reportFilters = z.object({
   requesterId: z.coerce.number().int().positive().optional(),
   status: z.string().max(40).optional(),
   readingType: z.enum(["ACTUAL", "ESTIMATED"]).optional(),
+  encodedById: z.coerce.number().int().positive().optional(),
 });
 export type ReportFilters = z.infer<typeof reportFilters>;
 
@@ -26,7 +27,7 @@ export const REPORTS: { key: string; title: string; group: string; filters: stri
   { key: "approved-requests", title: "Approved Fuel Requests", group: "Requests", filters: ["vehicle", "fuelType", "office", "requester"] },
   { key: "rejected-cancelled", title: "Rejected and Cancelled Requests", group: "Requests", filters: ["vehicle", "fuelType", "office", "requester"] },
   { key: "pending-requests", title: "Pending Fuel Requests", group: "Requests", filters: ["vehicle", "fuelType", "office", "requester"] },
-  { key: "issuance", title: "Fuel Issuance Transaction Report", group: "Issuance", filters: ["vehicle", "fuelType", "office", "txStatus"] },
+  { key: "issuance", title: "Fuel Issuance Transaction Report", group: "Issuance", filters: ["vehicle", "fuelType", "office", "txStatus", "encoder"] },
   { key: "monthly-consumption", title: "Monthly Fuel Consumption Report", group: "Issuance", filters: ["vehicle", "fuelType", "office"] },
   { key: "monthly-expenditure", title: "Monthly Fuel Expenditure Report", group: "Issuance", filters: ["vehicle", "fuelType", "office"] },
   { key: "by-fuel-type", title: "Fuel Transactions by Fuel Type", group: "Issuance", filters: ["vehicle", "office"] },
@@ -60,6 +61,7 @@ function txWhere(f: ReportFilters): Prisma.FuelTransactionWhereInput {
     ...(f.vehicleId ? { vehicleId: f.vehicleId } : {}),
     ...(f.fuelTypeId ? { fuelTypeId: f.fuelTypeId } : {}),
     ...(f.officeId ? { vehicle: { officeId: f.officeId } } : {}),
+    ...(f.encodedById ? { encodedById: f.encodedById } : {}),
   };
 }
 

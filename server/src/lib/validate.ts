@@ -23,10 +23,17 @@ export const zDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a valid date (
 export const zOptDate = z.preprocess((v) => (v === "" ? null : v), zDate.nullable().optional());
 export const zId = z.coerce.number().int().positive();
 export const zOptId = z.preprocess((v) => (v === "" || v === null || v === undefined ? null : v), z.coerce.number().int().positive().nullable());
-export const zPositive = (label: string) =>
-  z.coerce.number({ message: `${label} must be a number` }).refine(Number.isFinite, `${label} must be a number`).gt(0, `${label} must be greater than zero`);
-export const zNonNeg = (label: string) =>
-  z.coerce.number({ message: `${label} must be a number` }).refine(Number.isFinite, `${label} must be a number`).min(0, `${label} cannot be negative`);
+// Blank strings are treated as missing (z.coerce.number would turn "" into 0).
+const blankToUndefined = (v: unknown) => (typeof v === "string" && v.trim() === "" ? undefined : v);
+const zNumber = (label: string) =>
+  z.preprocess(
+    blankToUndefined,
+    z
+      .custom<unknown>((v) => v !== undefined && v !== null, `${label} is required`)
+      .pipe(z.coerce.number({ message: `${label} must be a number` }).refine(Number.isFinite, `${label} must be a number`)),
+  );
+export const zPositive = (label: string) => zNumber(label).pipe(z.number().gt(0, `${label} must be greater than zero`));
+export const zNonNeg = (label: string) => zNumber(label).pipe(z.number().min(0, `${label} cannot be negative`));
 export const zOptNonNeg = (label: string) => z.preprocess((v) => (v === "" || v === null || v === undefined ? null : v), zNonNeg(label).nullable());
 
 /** Common list query: page, pageSize, q, from, to. */

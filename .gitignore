@@ -8,3 +8,5 @@ server/uploads/
 coverage/
 *.log
 .DS_Store
+backups/
+server/backups/

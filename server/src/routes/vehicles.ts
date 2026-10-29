@@ -90,6 +90,15 @@ vehiclesRouter.get("/options", requirePerm("vehicle.view", "report.view", "trans
   res.json(items);
 });
 
+/** Vehicle details plus latest verified / estimated odometer, used by the request form. */
+vehiclesRouter.get("/:id/summary", requirePerm("vehicle.view"), async (req, res) => {
+  const user = userOf(req);
+  const id = parse(zId, req.params.id);
+  const v = await prisma.vehicle.findFirst({ where: { AND: [{ id }, vehicleScope(user)] }, include: { fuelType: true, office: true } });
+  if (!v) throw notFound("Vehicle not found");
+  res.json({ ...v, odometer: await odometerStatus(prisma, id) });
+});
+
 vehiclesRouter.get("/:id", requirePerm("vehicle.view"), async (req, res) => {
   const user = userOf(req);
   const id = parse(zId, req.params.id);

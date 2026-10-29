@@ -130,7 +130,7 @@ describe("fuel request submission", () => {
   });
 
   it("rejects zero, negative and non-numeric fuel quantities", async () => {
-    for (const requestedLiters of [0, -5, "abc"]) {
+    for (const requestedLiters of [0, -5, "abc", ""]) {
       const res = await requester.post("/api/requests", draft({ requestedLiters }));
       expect(res.status).toBe(400);
       expect(res.body.details.fields.requestedLiters).toBeDefined();

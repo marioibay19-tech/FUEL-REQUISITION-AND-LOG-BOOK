@@ -1,0 +1,38 @@
+# Render Blueprint: creates the FUELTRACK web app and its PostgreSQL database.
+# Deploy with the "Deploy to Render" button in docs/GO_LIVE.md.
+services:
+  - type: web
+    name: fueltrack
+    runtime: node
+    plan: starter # always on; "free" works for a trial but sleeps after 15 minutes idle
+    region: singapore
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm run start:prod
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "true"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: fueltrack-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SEED_ADMIN_USERNAME
+        value: admin
+      - key: SEED_ADMIN_PASSWORD # you are asked for this when you deploy
+        sync: false
+      - key: SEED_DEMO_DATA
+        value: "false"
+
+databases:
+  - name: fueltrack-db
+    plan: basic-256mb # keeps your data; free databases are deleted after 30 days
+    region: singapore
+    databaseName: fueltrack
+    user: fueltrack
+    postgresMajorVersion: "16"

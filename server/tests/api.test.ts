@@ -364,6 +364,31 @@ describe("odometer estimation (ratio and proportion)", () => {
   });
 });
 
+describe("supporting documents", () => {
+  it("stores uploads in the database, validates them and serves them back", async () => {
+    const t = await custodian.post("/api/transactions", { vehicleId: vehicle.id, transactionDate: isoHoursAgo(1), litersIssued: 5, pricePerLiter: 60, remarks: "Receipt test" });
+    const pdf = Buffer.from("%PDF-1.4\n% FUELTRACK test receipt\n");
+    const up = await custodian.agent.post("/api/attachments").set("X-Requested-With", "FuelTrack").field("entityType", "FUEL_TRANSACTION").field("entityId", String(t.body.id)).attach("file", pdf, { filename: "receipt.pdf", contentType: "application/pdf" });
+    expect(up.status).toBe(201);
+    expect(up.body.content).toBeUndefined();
+    const fake = await custodian.agent.post("/api/attachments").set("X-Requested-With", "FuelTrack").field("entityType", "FUEL_TRANSACTION").field("entityId", String(t.body.id)).attach("file", Buffer.from("MZ not a pdf"), { filename: "virus.pdf", contentType: "application/pdf" });
+    expect(fake.status).toBe(400);
+    const detail = await custodian.get(`/api/transactions/${t.body.id}`);
+    expect(detail.body.attachments).toHaveLength(1);
+    expect(detail.body.attachments[0].content).toBeUndefined();
+    const dl = await custodian.get(`/api/attachments/${up.body.id}/download`).buffer(true).parse((res, cb) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () => cb(null, Buffer.concat(chunks)));
+    });
+    expect(dl.status).toBe(200);
+    expect(dl.headers["x-content-type-options"]).toBe("nosniff");
+    expect((dl.body as Buffer).equals(pdf)).toBe(true);
+    // requesters cannot read transaction documents
+    expect((await requester.get(`/api/attachments/${up.body.id}/download`)).status).toBe(403);
+  });
+});
+
 describe("reports and exports", () => {
   it("filters report rows by vehicle and exports CSV, Excel and PDF", async () => {
     const other = await registerVehicle(admin, { fuelTypeId: fx.diesel.id, officeId: fx.office.id });

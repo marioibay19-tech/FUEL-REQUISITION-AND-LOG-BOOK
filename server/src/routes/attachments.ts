@@ -14,8 +14,8 @@ import { getVisibleRequest } from "../services/requests.js";
 
 export const attachmentsRouter = Router();
 
+// Files uploaded before database storage was introduced live in this folder.
 const uploadDir = path.resolve(config.uploadDir);
-fs.mkdirSync(uploadDir, { recursive: true });
 
 // Allowed types, checked by extension, declared MIME type AND file signature.
 const ALLOWED: Record<string, { mime: string[]; magic: (b: Buffer) => boolean }> = {
@@ -64,13 +64,14 @@ attachmentsRouter.post("/", upload.single("file"), async (req, res) => {
   if (!rule || !rule.mime.includes(file.mimetype) || !rule.magic(file.buffer)) throw badRequest("Only PDF, JPG and PNG files are accepted");
   const ref = await assertCanAttach(user, entityType, entityId);
   const storedName = `${crypto.randomBytes(16).toString("hex")}${ext}`;
-  await fs.promises.writeFile(path.join(uploadDir, storedName), file.buffer, { flag: "wx" });
   const safeName = file.originalname.replace(/[^\w.\- ()]/g, "_").slice(0, 200);
   const a = await prisma.attachment.create({
-    data: { entityType, entityId, originalName: safeName, storedName, mimeType: file.mimetype, sizeBytes: file.size, description: description ?? null, uploadedById: user.id },
+    data: { entityType, entityId, originalName: safeName, storedName, mimeType: file.mimetype, sizeBytes: file.size, content: new Uint8Array(file.buffer), description: description ?? null, uploadedById: user.id },
   });
   await audit(prisma, { userId: user.id, action: "ATTACHMENT_UPLOADED", module: entityType, recordId: ref, after: { attachmentId: a.id, file: safeName, size: file.size }, ip: req.ip });
-  res.status(201).json(a);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { content, ...meta } = a;
+  res.status(201).json(meta);
 });
 
 attachmentsRouter.get("/:id/download", async (req, res) => {
@@ -79,9 +80,10 @@ attachmentsRouter.get("/:id/download", async (req, res) => {
   if (!a) throw notFound("Attachment not found");
   await assertCanView(user, a.entityType as Entity, a.entityId);
   const file = path.join(uploadDir, path.basename(a.storedName));
-  if (!fs.existsSync(file)) throw notFound("The stored file is missing; contact the administrator");
+  if (!a.content && !fs.existsSync(file)) throw notFound("The stored file is missing; contact the administrator");
   res.setHeader("Content-Type", a.mimeType);
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Content-Disposition", `${req.query.inline === "1" ? "inline" : "attachment"}; filename="${a.originalName.replace(/"/g, "")}"`);
-  fs.createReadStream(file).pipe(res);
+  if (a.content) res.end(Buffer.from(a.content));
+  else fs.createReadStream(file).pipe(res);
 });

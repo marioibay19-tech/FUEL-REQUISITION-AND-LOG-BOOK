@@ -2,8 +2,11 @@
   "name": "fueltrack",
   "version": "1.0.0",
   "private": true,
-  "description": "FUELTRACK — Fuel Request and Odometer Monitoring System",
-  "workspaces": ["server", "client"],
+  "description": "FUELTRACK \u2014 Fuel Request and Odometer Monitoring System",
+  "workspaces": [
+    "server",
+    "client"
+  ],
   "scripts": {
     "dev": "npm run dev --workspace server & npm run dev --workspace client",
     "build": "npm run build --workspace server && npm run build --workspace client",
@@ -12,7 +15,10 @@
     "typecheck": "npm run typecheck --workspace server && npm run typecheck --workspace client",
     "db:migrate": "npm run db:migrate --workspace server",
     "db:deploy": "npm run db:deploy --workspace server",
-    "db:seed": "npm run db:seed --workspace server"
+    "db:seed": "npm run db:seed --workspace server",
+    "start:prod": "npm run start:prod --workspace server"
   },
-  "engines": { "node": ">=20.19" }
+  "engines": {
+    "node": ">=20.19"
+  }
 }

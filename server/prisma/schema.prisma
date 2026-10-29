@@ -1,0 +1,498 @@
+// FUELTRACK — Fuel Request and Odometer Monitoring System
+// Relational schema (PostgreSQL). Money uses DECIMAL(14,2); quantities and
+// distances use fixed-point decimals; all timestamps are timestamptz (UTC in
+// storage, displayed in Asia/Manila).
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------- enums
+
+enum RoleCode {
+  ADMIN
+  REQUESTER
+  APPROVER
+  CUSTODIAN
+}
+
+enum VehicleStatus {
+  ACTIVE
+  INACTIVE
+  UNDER_REPAIR
+  RETIRED
+}
+
+enum RequestStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  RETURNED
+  READY_FOR_ISSUANCE
+  PARTIALLY_ISSUED
+  FULLY_ISSUED
+  CANCELLED
+}
+
+enum TransactionStatus {
+  ACTIVE // current, counts toward totals
+  SUPERSEDED // replaced by a correction; kept for history
+  VOIDED // cancelled / reversed; kept for history
+}
+
+enum ReadingType {
+  ACTUAL
+  ESTIMATED
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  FLAGGED
+}
+
+enum OdometerSource {
+  FUEL_TRANSACTION
+  MANUAL_READING
+  INITIAL_REGISTRATION
+}
+
+enum ReferenceSource {
+  COMPUTED_INTERVAL
+  MANUAL
+}
+
+// ---------------------------------------------------------------- people
+
+model Office {
+  id                Int      @id @default(autoincrement())
+  code              String   @unique @db.VarChar(20)
+  name              String   @db.VarChar(150)
+  defaultApproverId Int?     @map("default_approver_id")
+  defaultApprover   User?    @relation("OfficeDefaultApprover", fields: [defaultApproverId], references: [id], onDelete: SetNull)
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  users    User[]        @relation("UserOffice")
+  vehicles Vehicle[]
+  requests FuelRequest[]
+
+  @@map("offices_or_divisions")
+}
+
+model Role {
+  id          Int        @id @default(autoincrement())
+  code        RoleCode   @unique
+  name        String     @db.VarChar(60)
+  description String?    @db.VarChar(255)
+  users       UserRole[]
+
+  @@map("roles")
+}
+
+model User {
+  id                 Int       @id @default(autoincrement())
+  username           String    @unique @db.VarChar(50)
+  passwordHash       String    @map("password_hash") @db.VarChar(100)
+  fullName           String    @map("full_name") @db.VarChar(120)
+  email              String?   @unique @db.VarChar(150)
+  position           String?   @db.VarChar(120)
+  officeId           Int?      @map("office_id")
+  office             Office?   @relation("UserOffice", fields: [officeId], references: [id], onDelete: SetNull)
+  isActive           Boolean   @default(true) @map("is_active")
+  mustChangePassword Boolean   @default(false) @map("must_change_password")
+  failedLoginCount   Int       @default(0) @map("failed_login_count")
+  lockedUntil        DateTime? @map("locked_until") @db.Timestamptz(6)
+  lastLoginAt        DateTime? @map("last_login_at") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  roles                UserRole[]
+  approverForOffices   Office[]                  @relation("OfficeDefaultApprover")
+  requests             FuelRequest[]             @relation("RequestRequester")
+  assignedRequests     FuelRequest[]             @relation("RequestApprover")
+  approvals            FuelApproval[]
+  encodedTransactions  FuelTransaction[]         @relation("TxEncoder")
+  verifiedTransactions FuelTransaction[]         @relation("TxVerifier")
+  encodedOdometer      OdometerLog[]             @relation("OdoEncoder")
+  verifiedOdometer     OdometerLog[]             @relation("OdoVerifier")
+  approvedReferences   FuelEfficiencyReference[]
+  attachments          Attachment[]
+  notifications        Notification[]
+  auditLogs            AuditLog[]
+  custodianVehicles    Vehicle[]                 @relation("VehicleCustodian")
+
+  @@map("users")
+}
+
+model UserRole {
+  userId     Int      @map("user_id")
+  roleId     Int      @map("role_id")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz(6)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+// ---------------------------------------------------------------- fleet
+
+model FuelType {
+  id                   Int      @id @default(autoincrement())
+  code                 String   @unique @db.VarChar(20)
+  name                 String   @unique @db.VarChar(60)
+  defaultPricePerLiter Decimal  @default(0) @map("default_price_per_liter") @db.Decimal(10, 2)
+  active               Boolean  @default(true)
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  vehicles     Vehicle[]
+  requests     FuelRequest[]
+  transactions FuelTransaction[]
+
+  @@map("fuel_types")
+}
+
+model Vehicle {
+  id                  Int           @id @default(autoincrement())
+  plateNumber         String        @unique @map("plate_number") @db.VarChar(20)
+  propertyNumber      String?       @unique @map("property_number") @db.VarChar(40)
+  description         String        @db.VarChar(200)
+  make                String?       @db.VarChar(60)
+  model               String?       @db.VarChar(60)
+  year                Int?
+  classification      String        @db.VarChar(60)
+  fuelTypeId          Int           @map("fuel_type_id")
+  fuelType            FuelType      @relation(fields: [fuelTypeId], references: [id], onDelete: Restrict)
+  officeId            Int?          @map("office_id")
+  office              Office?       @relation(fields: [officeId], references: [id], onDelete: SetNull)
+  custodianName       String?       @map("custodian_name") @db.VarChar(120)
+  custodianUserId     Int?          @map("custodian_user_id")
+  custodianUser       User?         @relation("VehicleCustodian", fields: [custodianUserId], references: [id], onDelete: SetNull)
+  tankCapacityLiters  Decimal?      @map("tank_capacity_liters") @db.Decimal(8, 2)
+  // Latest VERIFIED actual odometer reading (never an estimate).
+  currentOdometer     Decimal       @default(0) @map("current_odometer") @db.Decimal(12, 1)
+  currentOdometerAt   DateTime?     @map("current_odometer_at") @db.Timestamptz(6)
+  registrationExpiry  DateTime?     @map("registration_expiry") @db.Date
+  lastMaintenanceDate DateTime?     @map("last_maintenance_date") @db.Date
+  nextMaintenanceDate DateTime?     @map("next_maintenance_date") @db.Date
+  maintenanceNotes    String?       @map("maintenance_notes") @db.Text
+  status              VehicleStatus @default(ACTIVE)
+  remarks             String?       @db.Text
+  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  requests     FuelRequest[]
+  transactions FuelTransaction[]
+  odometerLogs OdometerLog[]
+  references   FuelEfficiencyReference[]
+
+  @@index([status])
+  @@index([officeId])
+  @@map("vehicles")
+}
+
+// ---------------------------------------------------------------- requests
+
+model FuelRequest {
+  id                     Int           @id @default(autoincrement())
+  requestNumber          String        @unique @map("request_number") @db.VarChar(30)
+  clientToken            String?       @unique @map("client_token") @db.VarChar(64) // idempotency key from the form
+  requestDate            DateTime      @map("request_date") @db.Date
+  requesterId            Int           @map("requester_id")
+  requester              User          @relation("RequestRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  officeId               Int?          @map("office_id")
+  office                 Office?       @relation(fields: [officeId], references: [id], onDelete: SetNull)
+  purpose                String        @db.VarChar(500)
+  destination            String?       @db.VarChar(300)
+  travelDate             DateTime?     @map("travel_date") @db.Date
+  remarks                String?       @db.Text
+  vehicleId              Int           @map("vehicle_id")
+  vehicle                Vehicle       @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  odometerAtRequest      Decimal?      @map("odometer_at_request") @db.Decimal(12, 1)
+  fuelTypeId             Int           @map("fuel_type_id")
+  fuelType               FuelType      @relation(fields: [fuelTypeId], references: [id], onDelete: Restrict)
+  fuelTypeOverride       Boolean       @default(false) @map("fuel_type_override")
+  overrideReason         String?       @map("override_reason") @db.VarChar(300)
+  requestedLiters        Decimal       @map("requested_liters") @db.Decimal(10, 2)
+  approvedLiters         Decimal?      @map("approved_liters") @db.Decimal(10, 2)
+  issuedLiters           Decimal       @default(0) @map("issued_liters") @db.Decimal(10, 2)
+  estimatedPricePerLiter Decimal       @map("estimated_price_per_liter") @db.Decimal(10, 2)
+  estimatedTotalCost     Decimal       @map("estimated_total_cost") @db.Decimal(14, 2)
+  intendedFuelingDate    DateTime?     @map("intended_fueling_date") @db.Date
+  reason                 String?       @db.VarChar(500)
+  status                 RequestStatus @default(DRAFT)
+  assignedApproverId     Int?          @map("assigned_approver_id")
+  assignedApprover       User?         @relation("RequestApprover", fields: [assignedApproverId], references: [id], onDelete: SetNull)
+  flaggedForReview       Boolean       @default(false) @map("flagged_for_review")
+  flagReasons            String[]      @default([]) @map("flag_reasons")
+  submittedAt            DateTime?     @map("submitted_at") @db.Timestamptz(6)
+  decidedAt              DateTime?     @map("decided_at") @db.Timestamptz(6)
+  createdAt              DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  items        FuelRequestItem[]
+  approvals    FuelApproval[]
+  transactions FuelTransaction[]
+
+  @@index([status])
+  @@index([requesterId])
+  @@index([vehicleId, createdAt])
+  @@index([assignedApproverId, status])
+  @@index([requestDate])
+  @@map("fuel_requests")
+}
+
+// Line items. FUELTRACK requests one fuel type per vehicle per request; the
+// single line is mirrored here so multi-item requests can be added later
+// without a schema change.
+model FuelRequestItem {
+  id            Int         @id @default(autoincrement())
+  requestId     Int         @map("request_id")
+  request       FuelRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  fuelTypeId    Int         @map("fuel_type_id")
+  liters        Decimal     @db.Decimal(10, 2)
+  pricePerLiter Decimal     @map("price_per_liter") @db.Decimal(10, 2)
+  lineTotal     Decimal     @map("line_total") @db.Decimal(14, 2)
+
+  @@index([requestId])
+  @@map("fuel_request_items")
+}
+
+model FuelApproval {
+  id             Int            @id @default(autoincrement())
+  requestId      Int            @map("request_id")
+  request        FuelRequest    @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  action         String         @db.VarChar(40) // SUBMIT, APPROVE, REJECT, RETURN, RESUBMIT, READY, CANCEL, ISSUE, REASSIGN
+  previousStatus RequestStatus? @map("previous_status")
+  newStatus      RequestStatus  @map("new_status")
+  actedById      Int            @map("acted_by_id")
+  actedBy        User           @relation(fields: [actedById], references: [id], onDelete: Restrict)
+  remarks        String?        @db.Text
+  reason         String?        @db.Text // rejection / return / cancellation reason
+  approvedLiters Decimal?       @map("approved_liters") @db.Decimal(10, 2)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([requestId, createdAt])
+  @@map("fuel_approvals")
+}
+
+// ---------------------------------------------------------------- issuance
+
+model FuelTransaction {
+  id                Int               @id @default(autoincrement())
+  transactionNumber String            @unique @map("transaction_number") @db.VarChar(30)
+  clientToken       String?           @unique @map("client_token") @db.VarChar(64)
+  requestId         Int?              @map("request_id")
+  request           FuelRequest?      @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  transactionDate   DateTime          @map("transaction_date") @db.Timestamptz(6)
+  vehicleId         Int               @map("vehicle_id")
+  vehicle           Vehicle           @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  fuelTypeId        Int               @map("fuel_type_id")
+  fuelType          FuelType          @relation(fields: [fuelTypeId], references: [id], onDelete: Restrict)
+  requestedLiters   Decimal?          @map("requested_liters") @db.Decimal(10, 2) // snapshot from the request
+  approvedLiters    Decimal?          @map("approved_liters") @db.Decimal(10, 2) // snapshot from the request
+  litersIssued      Decimal           @map("liters_issued") @db.Decimal(10, 2)
+  pricePerLiter     Decimal           @map("price_per_liter") @db.Decimal(10, 2)
+  totalCost         Decimal           @map("total_cost") @db.Decimal(14, 2)
+  odometerReading   Decimal?          @map("odometer_reading") @db.Decimal(12, 1) // actual reading at fueling, if taken
+  isFullTank        Boolean           @default(false) @map("is_full_tank")
+  station           String?           @db.VarChar(150)
+  receiptNumber     String?           @map("receipt_number") @db.VarChar(60)
+  remarks           String?           @db.Text
+  status            TransactionStatus @default(ACTIVE)
+  correctsId        Int?              @unique @map("corrects_id") // the record this one replaces
+  corrects          FuelTransaction?  @relation("TxCorrection", fields: [correctsId], references: [id], onDelete: Restrict)
+  correctedBy       FuelTransaction?  @relation("TxCorrection")
+  statusReason      String?           @map("status_reason") @db.Text
+  encodedById       Int               @map("encoded_by_id")
+  encodedBy         User              @relation("TxEncoder", fields: [encodedById], references: [id], onDelete: Restrict)
+  verifiedById      Int?              @map("verified_by_id")
+  verifiedBy        User?             @relation("TxVerifier", fields: [verifiedById], references: [id], onDelete: Restrict)
+  verifiedAt        DateTime?         @map("verified_at") @db.Timestamptz(6)
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  odometerLog OdometerLog?
+
+  @@index([vehicleId, transactionDate])
+  @@index([transactionDate])
+  @@index([status])
+  @@index([requestId])
+  @@map("fuel_transactions")
+}
+
+// ---------------------------------------------------------------- odometer
+
+model OdometerLog {
+  id            Int              @id @default(autoincrement())
+  recordNumber  String           @unique @map("record_number") @db.VarChar(30)
+  vehicleId     Int              @map("vehicle_id")
+  vehicle       Vehicle          @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  transactionId Int?             @unique @map("transaction_id")
+  transaction   FuelTransaction? @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  source        OdometerSource
+  readingDate   DateTime         @map("reading_date") @db.Timestamptz(6)
+  isFullTank    Boolean          @default(false) @map("is_full_tank")
+  fuelLiters    Decimal          @default(0) @map("fuel_liters") @db.Decimal(10, 2)
+
+  previousVerifiedOdometer Decimal?  @map("previous_verified_odometer") @db.Decimal(12, 1)
+  previousVerifiedAt       DateTime? @map("previous_verified_at") @db.Timestamptz(6)
+  previousVerifiedLogId    Int?      @map("previous_verified_log_id")
+
+  // Actual instrument reading. Never written by the estimator.
+  actualOdometer         Decimal?  @map("actual_odometer") @db.Decimal(12, 1)
+  originalActualOdometer Decimal?  @map("original_actual_odometer") @db.Decimal(12, 1) // first value, kept when corrected
+  actualRecordedAt       DateTime? @map("actual_recorded_at") @db.Timestamptz(6)
+  distanceTraveled       Decimal?  @map("distance_traveled") @db.Decimal(12, 1) // actual - previous verified
+
+  // Estimate (ratio and proportion). Stored separately from the actual reading.
+  estimateStatus       String    @default("NOT_COMPUTED") @map("estimate_status") @db.VarChar(30) // COMPUTED | INSUFFICIENT_DATA | NOT_APPLICABLE
+  estimateMethod       String?   @map("estimate_method") @db.VarChar(40)
+  consumptionBasis     String?   @map("consumption_basis") @db.VarChar(40)
+  estimateLiters       Decimal?  @map("estimate_liters") @db.Decimal(10, 2) // fuel attributed to the estimated interval
+  efficiencyKmPerLiter Decimal?  @map("efficiency_km_per_liter") @db.Decimal(10, 4)
+  efficiencyQuality    String?   @map("efficiency_quality") @db.VarChar(20) // VERIFIED | ESTIMATED
+  referenceStart       DateTime? @map("reference_start") @db.Timestamptz(6)
+  referenceEnd         DateTime? @map("reference_end") @db.Timestamptz(6)
+  referenceLiters      Decimal?  @map("reference_liters") @db.Decimal(10, 2)
+  referenceDistance    Decimal?  @map("reference_distance") @db.Decimal(12, 1)
+  referenceId          Int?      @map("reference_id")
+  referenceIntervals   Int?      @map("reference_intervals")
+  estimatedDistance    Decimal?  @map("estimated_distance") @db.Decimal(12, 1)
+  estimatedOdometer    Decimal?  @map("estimated_odometer") @db.Decimal(12, 1)
+  estimateComputedAt   DateTime? @map("estimate_computed_at") @db.Timestamptz(6)
+
+  varianceKm  Decimal? @map("variance_km") @db.Decimal(12, 1)
+  variancePct Decimal? @map("variance_pct") @db.Decimal(8, 2)
+
+  readingType        ReadingType        @map("reading_type")
+  verificationStatus VerificationStatus @default(PENDING) @map("verification_status")
+  flags              String[]           @default([])
+  encodedById        Int                @map("encoded_by_id")
+  encodedBy          User               @relation("OdoEncoder", fields: [encodedById], references: [id], onDelete: Restrict)
+  verifiedById       Int?               @map("verified_by_id")
+  verifiedBy         User?              @relation("OdoVerifier", fields: [verifiedById], references: [id], onDelete: Restrict)
+  verifiedAt         DateTime?          @map("verified_at") @db.Timestamptz(6)
+  isVoided           Boolean            @default(false) @map("is_voided")
+  remarks            String?            @db.Text
+  createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([vehicleId, readingDate])
+  @@index([verificationStatus])
+  @@index([readingType])
+  @@map("odometer_logs")
+}
+
+// Approved reference intervals used by the APPROVED_REFERENCE method.
+model FuelEfficiencyReference {
+  id                   Int             @id @default(autoincrement())
+  vehicleId            Int             @map("vehicle_id")
+  vehicle              Vehicle         @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  source               ReferenceSource
+  periodStart          DateTime?       @map("period_start") @db.Timestamptz(6)
+  periodEnd            DateTime?       @map("period_end") @db.Timestamptz(6)
+  referenceLiters      Decimal         @map("reference_liters") @db.Decimal(10, 2)
+  referenceDistance    Decimal         @map("reference_distance") @db.Decimal(12, 1)
+  efficiencyKmPerLiter Decimal         @map("efficiency_km_per_liter") @db.Decimal(10, 4)
+  quality              String          @db.VarChar(20) // VERIFIED | ESTIMATED | MANUAL
+  notes                String?         @db.Text
+  isActive             Boolean         @default(true) @map("is_active")
+  approvedById         Int             @map("approved_by_id")
+  approvedBy           User            @relation(fields: [approvedById], references: [id], onDelete: Restrict)
+  approvedAt           DateTime        @default(now()) @map("approved_at") @db.Timestamptz(6)
+
+  @@index([vehicleId, isActive])
+  @@map("fuel_efficiency_references")
+}
+
+// ---------------------------------------------------------------- support
+
+model Attachment {
+  id           Int      @id @default(autoincrement())
+  entityType   String   @map("entity_type") @db.VarChar(30) // FUEL_REQUEST | FUEL_TRANSACTION
+  entityId     Int      @map("entity_id")
+  originalName String   @map("original_name") @db.VarChar(255)
+  storedName   String   @unique @map("stored_name") @db.VarChar(100)
+  mimeType     String   @map("mime_type") @db.VarChar(100)
+  sizeBytes    Int      @map("size_bytes")
+  description  String?  @db.VarChar(255)
+  uploadedById Int      @map("uploaded_by_id")
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([entityType, entityId])
+  @@map("attachments")
+}
+
+model Notification {
+  id        Int       @id @default(autoincrement())
+  userId    Int       @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String    @db.VarChar(40)
+  title     String    @db.VarChar(200)
+  message   String    @db.Text
+  link      String?   @db.VarChar(255)
+  readAt    DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id        BigInt   @id @default(autoincrement())
+  userId    Int?     @map("user_id")
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  action    String   @db.VarChar(60)
+  module    String   @db.VarChar(40)
+  recordId  String?  @map("record_id") @db.VarChar(60)
+  before    Json?
+  after     Json?
+  reason    String?  @db.Text
+  ipAddress String?  @map("ip_address") @db.VarChar(64)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt])
+  @@index([module, recordId])
+  @@index([userId])
+  @@map("audit_logs")
+}
+
+model SystemSetting {
+  key         String   @id @db.VarChar(80)
+  value       Json
+  description String?  @db.VarChar(300)
+  updatedById Int?     @map("updated_by_id")
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("system_settings")
+}
+
+model NumberSequence {
+  name  String @id @db.VarChar(40) // e.g. FR-2026
+  value Int    @default(0)
+
+  @@map("number_sequences")
+}
+
+// Session store used by connect-pg-simple.
+model Session {
+  sid    String   @id @db.VarChar
+  sess   Json
+  expire DateTime @db.Timestamp(6)
+
+  @@index([expire], map: "IDX_session_expire")
+  @@map("session")
+}

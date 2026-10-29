@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+server/src/generated/
+server/uploads/
+coverage/
+*.log
+.DS_Store
+backups/
+server/backups/

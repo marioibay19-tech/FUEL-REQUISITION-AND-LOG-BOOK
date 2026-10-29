@@ -31,7 +31,11 @@ client/   web application
 docs/     calculation method, admin guide, deployment
 ```
 
-## Quick start
+## Go live
+
+The easiest way to put FUELTRACK online, with no programming, is the step-by-step guide **[docs/GO_LIVE.md](docs/GO_LIVE.md)**. It uses the included `render.yaml` and a one-click *Deploy to Render* button.
+
+## Quick start (developers)
 
 ```bash
 npm install
@@ -60,14 +64,15 @@ The demo data is fictional sample data: offices, 12 vehicles and about six month
 
 - [Odometer calculation method](docs/ODOMETER_CALCULATION.md): ratio and proportion, reference intervals, consumption basis, rules and limitations
 - [Administrator guide](docs/ADMIN_GUIDE.md): roles, offices, vehicles, settings, corrections, audit
+- [Go live without programming (Render)](docs/GO_LIVE.md)
 - [Installation and deployment](docs/DEPLOYMENT.md): environment, production, Docker, backups and restore, security checklist
 
 ## Automated tests
 
-`npm test` runs 51 tests:
+`npm test` runs 52 tests:
 
 - **Calculations**: cost; the 40 L / 320 km / 25 L specification case giving 8 km/L, 200 km and 25,520 km labelled as an estimate; insufficient data; zero-quantity refusal; interval attribution; rolling average; decreasing-reading and variance checks.
-- **API**: login, lockout, inactive accounts; unauthorized and cross-role access; CSRF header; request submission and validation; duplicate prevention and flagging; approve / reject / return / resubmit; no self-approval; partial and full issuance with limits; correction by supersession; actual vs estimated comparison; correction of actual readings preserving the original; large-variance alerts; historical efficiency; report filtering and CSV / Excel / PDF export; audit creation and immutability; dashboard figures from the database.
+- **API**: login, lockout, inactive accounts; unauthorized and cross-role access; CSRF header; request submission and validation; duplicate prevention and flagging; approve / reject / return / resubmit; no self-approval; partial and full issuance with limits; correction by supersession; actual vs estimated comparison; correction of actual readings preserving the original; large-variance alerts; historical efficiency; report filtering and CSV / Excel / PDF export; document upload validation and storage; audit creation and immutability; dashboard figures from the database.
 
 ## Known limitations
 

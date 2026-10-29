@@ -1,5 +1,7 @@
 # Installation and deployment
 
+> Not a developer? Use **[GO_LIVE.md](GO_LIVE.md)**: one-click hosting on Render.
+
 ## Requirements
 
 - Node.js 20.19 or newer (22 LTS recommended)
@@ -44,9 +46,10 @@ The API tests use `TEST_DATABASE_URL`. That database is **dropped and recreated 
 ```bash
 npm ci
 npm run build                 # builds the API (server/dist) and the web client (client/dist)
-npm run db:deploy             # apply migrations
-npm run db:seed               # first time only, with SEED_DEMO_DATA=false
-NODE_ENV=production npm start # serves the API and the web client on PORT
+NODE_ENV=production npm run start:prod
+# start:prod applies pending migrations, creates the reference data and the first
+# administrator (from SEED_ADMIN_USERNAME / SEED_ADMIN_PASSWORD) if missing, then
+# serves the API and the web client on PORT. It is safe to run on every start.
 ```
 
 Production environment (in `server/.env` or the process manager):
@@ -58,7 +61,8 @@ Production environment (in `server/.env` or the process manager):
 | `NODE_ENV=production` | |
 | `TRUST_PROXY=true` | When behind Nginx / a load balancer terminating HTTPS. Enables secure cookies |
 | `APP_ORIGIN` | Public URL, e.g. `https://fueltrack.example.gov.ph` |
-| `UPLOAD_DIR` | Persistent folder for receipts and documents. Include it in backups |
+| `SEED_ADMIN_PASSWORD` | First administrator's password (10+ characters). Used only if the account does not exist yet |
+| `UPLOAD_DIR` | Only needed for documents uploaded by versions before 1.1. New uploads are stored in the database |
 | `SEED_DEMO_DATA=false` | Never load demo data in production |
 
 Run it behind HTTPS (for example Nginx with a certificate) and keep the process alive with systemd or pm2. Example Nginx location:
@@ -78,9 +82,8 @@ location / {
 `Dockerfile` and `docker-compose.yml` build one image that applies migrations on start and serves everything on port 4000:
 
 ```bash
-printf "POSTGRES_PASSWORD=%s\nSESSION_SECRET=%s\n" "$(openssl rand -hex 16)" "$(openssl rand -hex 32)" > .env
-docker compose up -d --build
-docker compose exec -e SEED_ADMIN_PASSWORD='Choose-A-Strong-1' app npx tsx prisma/seed.ts
+printf "POSTGRES_PASSWORD=%s\nSESSION_SECRET=%s\nSEED_ADMIN_PASSWORD=%s\n" "$(openssl rand -hex 16)" "$(openssl rand -hex 32)" "Choose-A-Strong-1" > .env
+docker compose up -d --build     # first start creates the admin account
 ```
 
 > The container files follow the same steps as the verified single-server procedure, but they were **not built in the development environment** (no Docker daemon was available). Test them in your environment before relying on them.
@@ -91,7 +94,7 @@ docker compose exec -e SEED_ADMIN_PASSWORD='Choose-A-Strong-1' app npx tsx prism
 npm run backup --workspace server          # BACKUP_DIR=./backups by default
 ```
 
-This writes a `pg_dump` custom-format file plus a `.tar.gz` of the upload folder, and keeps the latest 30 of each. Schedule it daily (cron or systemd timer) and copy the files off the server.
+This writes a `pg_dump` custom-format file, which includes uploaded documents (they are stored in the database), plus a `.tar.gz` of the legacy upload folder if one exists. It keeps the latest 30 of each. Schedule it daily (cron or systemd timer) and copy the files off the server.
 
 Restore into an empty database:
 

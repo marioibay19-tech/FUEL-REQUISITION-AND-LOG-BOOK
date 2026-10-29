@@ -19,5 +19,5 @@ RUN mkdir -p /data/uploads && chown -R node:node /data /app/server
 USER node
 WORKDIR /app/server
 EXPOSE 4000
-# Apply pending migrations, then start.
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
+# Applies pending migrations, creates reference data / first admin if missing, then starts.
+CMD ["npm", "run", "start:prod"]
